@@ -132,21 +132,26 @@
 
   const COLS = 20, ROWS = 20;
   const CELL = canvas.width / COLS;
-  const SPEED_INIT = 140;
-  const SPEED_MIN  = 60;
 
-  let snake, dir, nextDir, food, score, best, loop, running;
+  // Vitesse en ms : diminue quand le score augmente
+  function getDelay(sc) { return Math.max(70, 150 - sc * 4); }
 
-  best = parseInt(localStorage.getItem('snakeBest') || '0');
+  let snake, dir, nextDir, food, score, best, intervalId;
+
+  // localStorage protégé contre les erreurs (iframe, mode privé…)
+  function lsGet(k)    { try { return localStorage.getItem(k); }    catch(e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); }        catch(e) {} }
+
+  best = parseInt(lsGet('snakeBest') || '0');
   bestEl.textContent = best;
 
+  // ── Utilitaires ──────────────────────────────────────────────
   function rand(max) { return Math.floor(Math.random() * max); }
 
   function placeFood() {
     let pos;
-    do {
-      pos = { x: rand(COLS), y: rand(ROWS) };
-    } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+    do { pos = { x: rand(COLS), y: rand(ROWS) }; }
+    while (snake.some(s => s.x === pos.x && s.y === pos.y));
     food = pos;
   }
 
@@ -159,19 +164,16 @@
     placeFood();
   }
 
-  function speed() {
-    return Math.max(SPEED_MIN, SPEED_INIT - score * 3);
-  }
-
+  // ── Boucle de jeu ────────────────────────────────────────────
   function step() {
     dir = { ...nextDir };
     const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
-    // Wall collision
+    // Collision murs
     if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
       return gameOver();
     }
-    // Self collision
+    // Collision soi-même
     if (snake.some(s => s.x === head.x && s.y === head.y)) {
       return gameOver();
     }
@@ -184,11 +186,12 @@
       if (score > best) {
         best = score;
         bestEl.textContent = best;
-        localStorage.setItem('snakeBest', best);
+        lsSet('snakeBest', best);
       }
       placeFood();
-      clearTimeout(loop);
-      loop = setTimeout(tick, speed());
+      // Réinitialiser l'intervalle avec la nouvelle vitesse
+      clearInterval(intervalId);
+      intervalId = setInterval(step, getDelay(score));
     } else {
       snake.pop();
     }
@@ -196,74 +199,60 @@
     draw();
   }
 
-  function tick() {
-    step();
-    if (running) loop = setTimeout(tick, speed());
-  }
-
+  // ── Rendu ────────────────────────────────────────────────────
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Grid (subtle)
+    // Grille subtile
     ctx.strokeStyle = '#1c2a4a';
     ctx.lineWidth = 0.5;
     for (let x = 0; x <= COLS; x++) {
-      ctx.beginPath();
-      ctx.moveTo(x * CELL, 0);
-      ctx.lineTo(x * CELL, canvas.height);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, canvas.height); ctx.stroke();
     }
     for (let y = 0; y <= ROWS; y++) {
-      ctx.beginPath();
-      ctx.moveTo(0, y * CELL);
-      ctx.lineTo(canvas.width, y * CELL);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(canvas.width, y * CELL); ctx.stroke();
     }
 
-    // Food
-    const fx = food.x * CELL + CELL / 2;
-    const fy = food.y * CELL + CELL / 2;
+    // Nourriture
     ctx.fillStyle = '#e94560';
     ctx.beginPath();
-    ctx.arc(fx, fy, CELL / 2 - 2, 0, Math.PI * 2);
+    ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Snake
+    // Serpent
     snake.forEach((seg, i) => {
       const t = i / snake.length;
-      // Gradient from head (bright) to tail (dark)
       const r = Math.round(78  - t * 40);
       const g = Math.round(204 - t * 60);
       const b = Math.round(163 - t * 50);
       ctx.fillStyle = `rgb(${r},${g},${b})`;
 
+      const x = seg.x * CELL + 1, y = seg.y * CELL + 1, s = CELL - 2;
       if (i === 0) {
-        // Head: rounded rect
-        roundRect(seg.x * CELL + 1, seg.y * CELL + 1, CELL - 2, CELL - 2, 5);
+        // Tête avec coins arrondis
+        const radius = 5;
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + s - radius, y);
+        ctx.quadraticCurveTo(x + s, y, x + s, y + radius);
+        ctx.lineTo(x + s, y + s - radius);
+        ctx.quadraticCurveTo(x + s, y + s, x + s - radius, y + s);
+        ctx.lineTo(x + radius, y + s);
+        ctx.quadraticCurveTo(x, y + s, x, y + s - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        ctx.fill();
       } else {
-        ctx.fillRect(seg.x * CELL + 1, seg.y * CELL + 1, CELL - 2, CELL - 2);
+        ctx.fillRect(x, y, s, s);
       }
     });
   }
 
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-    ctx.fill();
-  }
-
+  // ── Game over / démarrage ─────────────────────────────────────
   function gameOver() {
-    running = false;
-    clearTimeout(loop);
+    clearInterval(intervalId);
+    intervalId = null;
     titleEl.textContent   = 'Game Over';
     titleEl.style.color   = '#e94560';
     msgEl.textContent     = `Score : ${score}`;
@@ -272,36 +261,30 @@
   }
 
   function startGame() {
+    clearInterval(intervalId);
     overlay.style.display = 'none';
-    titleEl.style.color   = '#e94560';
-    running = true;
     init();
     draw();
-    loop = setTimeout(tick, speed());
+    intervalId = setInterval(step, getDelay(score));
   }
 
   btn.addEventListener('click', startGame);
 
+  // ── Contrôles clavier ─────────────────────────────────────────
   document.addEventListener('keydown', e => {
+    if (!intervalId) return; // jeu non démarré
     const map = {
-      ArrowUp:    { x: 0, y: -1 },
-      ArrowDown:  { x: 0, y:  1 },
-      ArrowLeft:  { x:-1, y:  0 },
-      ArrowRight: { x: 1, y:  0 },
-      z: { x: 0, y: -1 }, Z: { x: 0, y: -1 },
-      w: { x: 0, y: -1 }, W: { x: 0, y: -1 },
-      s: { x: 0, y:  1 }, S: { x: 0, y:  1 },
-      q: { x:-1, y:  0 }, Q: { x:-1, y:  0 },
-      a: { x:-1, y:  0 }, A: { x:-1, y:  0 },
-      d: { x: 1, y:  0 }, D: { x: 1, y:  0 },
+      ArrowUp:    { x: 0, y:-1 }, ArrowDown:  { x: 0, y: 1 },
+      ArrowLeft:  { x:-1, y: 0 }, ArrowRight: { x: 1, y: 0 },
+      z:{ x:0,y:-1 }, Z:{ x:0,y:-1 }, w:{ x:0,y:-1 }, W:{ x:0,y:-1 },
+      s:{ x:0,y: 1 }, S:{ x:0,y: 1 },
+      q:{ x:-1,y:0 }, Q:{ x:-1,y:0 }, a:{ x:-1,y:0 }, A:{ x:-1,y:0 },
+      d:{ x: 1,y:0 }, D:{ x: 1,y:0 },
     };
-    const newDir = map[e.key];
-    if (!newDir) return;
+    const nd = map[e.key];
+    if (!nd) return;
     e.preventDefault();
-    // Prevent reversing direction
-    if (newDir.x !== -dir.x || newDir.y !== -dir.y) {
-      nextDir = newDir;
-    }
+    if (nd.x !== -dir.x || nd.y !== -dir.y) nextDir = nd;
   });
 </script>
 </body>
